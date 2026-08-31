@@ -15,9 +15,13 @@ type PostsService struct {
 // CreatePostParams are the parameters for creating a post.
 type CreatePostParams struct {
 	Content           string           `json:"content"`
-	Platforms         []Platform       `json:"platforms"`
+	AccountIds        []string         `json:"accountIds"`
 	ScheduledFor      *time.Time       `json:"scheduledFor,omitempty"`
+	ContentType       string           `json:"contentType,omitempty"`
+	SaveAsDraft       bool             `json:"saveAsDraft,omitempty"`
 	Media             []string         `json:"media,omitempty"`
+	FirstComment      string           `json:"firstComment,omitempty"`
+	FirstCommentDelay int              `json:"firstCommentDelay,omitempty"`
 	PlatformOverrides map[Platform]any `json:"platformOverrides,omitempty"`
 	Metadata          map[string]any   `json:"metadata,omitempty"`
 }
@@ -25,9 +29,12 @@ type CreatePostParams struct {
 // UpdatePostParams are the parameters for updating a post.
 type UpdatePostParams struct {
 	Content           *string          `json:"content,omitempty"`
-	Platforms         []Platform       `json:"platforms,omitempty"`
+	AccountIds        []string         `json:"accountIds,omitempty"`
 	ScheduledFor      *time.Time       `json:"scheduledFor,omitempty"`
+	ContentType       string           `json:"contentType,omitempty"`
 	Media             []string         `json:"media,omitempty"`
+	FirstComment      *string          `json:"firstComment,omitempty"`
+	FirstCommentDelay *int             `json:"firstCommentDelay,omitempty"`
 	PlatformOverrides map[Platform]any `json:"platformOverrides,omitempty"`
 	Metadata          map[string]any   `json:"metadata,omitempty"`
 }
@@ -191,19 +198,159 @@ func (it *PostsIterator) Err() error {
 	return it.err
 }
 
-// CreateDraft is a convenience method to create a draft post (no scheduled time).
-func (s *PostsService) CreateDraft(ctx context.Context, content string, platforms []Platform, opts ...RequestOption) (*Post, error) {
+// CreateDraft is a convenience method to create a draft post targeting specific accounts.
+func (s *PostsService) CreateDraft(ctx context.Context, content string, accountIds []string, opts ...RequestOption) (*Post, error) {
 	return s.Create(ctx, CreatePostParams{
-		Content:   content,
-		Platforms: platforms,
+		Content:    content,
+		AccountIds: accountIds,
 	}, opts...)
 }
 
-// Schedule is a convenience method to create a scheduled post.
-func (s *PostsService) Schedule(ctx context.Context, content string, platforms []Platform, scheduledFor time.Time, opts ...RequestOption) (*Post, error) {
+// Schedule is a convenience method to create a scheduled post targeting specific accounts.
+func (s *PostsService) Schedule(ctx context.Context, content string, accountIds []string, scheduledFor time.Time, opts ...RequestOption) (*Post, error) {
 	return s.Create(ctx, CreatePostParams{
 		Content:      content,
-		Platforms:    platforms,
+		AccountIds:   accountIds,
 		ScheduledFor: &scheduledFor,
 	}, opts...)
+}
+
+// RetriedPlatform describes a platform target that was re-queued by Retry.
+type RetriedPlatform struct {
+	Platform    Platform  `json:"platform"`
+	AccountID   string    `json:"accountId"`
+	RetryCount  int       `json:"retryCount"`
+	NextRetryAt time.Time `json:"nextRetryAt"`
+}
+
+// SkippedPlatform describes a platform target that Retry could not re-queue
+// because it already hit the maximum retry count.
+type SkippedPlatform struct {
+	Platform   Platform `json:"platform"`
+	AccountID  string   `json:"accountId"`
+	RetryCount int      `json:"retryCount"`
+	Reason     string   `json:"reason"`
+}
+
+// RetryResult is the response from PostsService.Retry.
+type RetryResult struct {
+	ID               string            `json:"id"`
+	Status           string            `json:"status"`
+	RetriedPlatforms []RetriedPlatform `json:"retriedPlatforms"`
+	SkippedPlatforms []SkippedPlatform `json:"skippedPlatforms"`
+}
+
+// Retry retries a FAILED or PARTIAL post. Only platform targets that are
+// FAILED, PENDING, or PUBLISHING (stuck) and have not exceeded the maximum
+// retry count are re-queued; the rest are reported in SkippedPlatforms.
+func (s *PostsService) Retry(ctx context.Context, id string, opts ...RequestOption) (*RetryResult, error) {
+	var result RetryResult
+	if err := s.client.post(ctx, fmt.Sprintf("/posts/%s/retry", id), nil, &result, opts...); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Cancel cancels a DRAFT or SCHEDULED post without deleting it.
+func (s *PostsService) Cancel(ctx context.Context, id string, opts ...RequestOption) (*Post, error) {
+	var post Post
+	if err := s.client.post(ctx, fmt.Sprintf("/posts/%s/cancel", id), nil, &post, opts...); err != nil {
+		return nil, err
+	}
+	return &post, nil
+}
+
+// Clone duplicates an existing post as a new DRAFT with the same content,
+// accounts, media, and metadata.
+func (s *PostsService) Clone(ctx context.Context, id string, opts ...RequestOption) (*Post, error) {
+	var post Post
+	if err := s.client.post(ctx, fmt.Sprintf("/posts/%s/clone", id), nil, &post, opts...); err != nil {
+		return nil, err
+	}
+	return &post, nil
+}
+
+// FixPlatformParams are the optional parameters for PostsService.FixPlatform.
+// All fields are optional — an empty FixPlatformParams{} just resets the
+// platform to PENDING and re-queues it with its existing content and media.
+type FixPlatformParams struct {
+	// MediaURL, if set, must be an https URL and replaces the platform's media
+	// for the retry.
+	MediaURL string `json:"mediaUrl,omitempty"`
+	// Content, if set, overrides the post content for this platform only.
+	Content string `json:"content,omitempty"`
+	// RefreshMedia re-encodes the post's existing first image as a baseline
+	// JPEG and republishes it. Image media only — do not set alongside MediaURL.
+	RefreshMedia bool `json:"refreshMedia,omitempty"`
+}
+
+// FixPlatformResult is the response from PostsService.FixPlatform.
+type FixPlatformResult struct {
+	Success    bool   `json:"success"`
+	PlatformID string `json:"platformId"`
+	Status     string `json:"status"`
+}
+
+// FixPlatform fixes a single failed or stuck platform on a PARTIAL or FAILED
+// post — optionally replacing its media or content — and re-queues just that
+// platform for publishing without touching the others. platformID is the
+// PostPlatform row ID, e.g. from Post.Platforms[i] once that field carries it,
+// or from the REST response of the original create/get call.
+func (s *PostsService) FixPlatform(ctx context.Context, postID, platformID string, params FixPlatformParams, opts ...RequestOption) (*FixPlatformResult, error) {
+	var result FixPlatformResult
+	path := fmt.Sprintf("/posts/%s/platforms/%s/fix", postID, platformID)
+	if err := s.client.post(ctx, path, params, &result, opts...); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ValidateMediaItem describes a media attachment for a pre-flight validation check.
+type ValidateMediaItem struct {
+	Type       string `json:"type"` // "image", "video", or "gif"
+	URL        string `json:"url,omitempty"`
+	MimeType   string `json:"mimeType,omitempty"`
+	SizeBytes  int64  `json:"sizeBytes,omitempty"`
+	DurationMs int64  `json:"durationMs,omitempty"`
+}
+
+// ValidatePostParams are the parameters for PostsService.Validate.
+type ValidatePostParams struct {
+	Content          string                      `json:"content"`
+	Platforms        []Platform                  `json:"platforms"`
+	MediaIds         []string                    `json:"mediaIds,omitempty"`
+	Media            []ValidateMediaItem         `json:"media,omitempty"`
+	FirstComment     string                      `json:"firstComment,omitempty"`
+	PlatformMetadata map[Platform]map[string]any `json:"platformMetadata,omitempty"`
+}
+
+// ValidationIssue is a single error or warning returned by PostsService.Validate.
+type ValidationIssue struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Field   string `json:"field,omitempty"`
+}
+
+// PlatformValidationResult is the per-platform result of PostsService.Validate.
+type PlatformValidationResult struct {
+	Valid    bool              `json:"valid"`
+	Errors   []ValidationIssue `json:"errors"`
+	Warnings []ValidationIssue `json:"warnings"`
+}
+
+// ValidateResult is the response from PostsService.Validate.
+type ValidateResult struct {
+	Valid     bool                                  `json:"valid"`
+	Platforms map[Platform]PlatformValidationResult `json:"platforms"`
+}
+
+// Validate runs a pre-flight content validation check — no post is created or
+// saved as a draft. Returns per-platform errors (hard failures) and warnings
+// (engagement hints). Useful for validating content before calling Create.
+func (s *PostsService) Validate(ctx context.Context, params ValidatePostParams, opts ...RequestOption) (*ValidateResult, error) {
+	var result ValidateResult
+	if err := s.client.post(ctx, "/posts/validate", params, &result, opts...); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }

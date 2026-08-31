@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/FortheanLabsProjects/voxburst-go/voxburst"
+	"github.com/fortheanprojects/voxburst-go/voxburst"
 )
 
 func main() {
@@ -23,11 +23,24 @@ func main() {
 
 	ctx := context.Background()
 
+	// List accounts first — you need account IDs to target specific connected accounts
+	fmt.Println("=== Listing connected accounts ===")
+	accounts, err := client.Accounts.List(ctx, nil)
+	if err != nil {
+		log.Fatalf("Failed to list accounts: %v", err)
+	}
+	for _, a := range accounts.Data {
+		fmt.Printf("  %s  %s  (%s)\n", a.ID, a.Username, a.Platform)
+	}
+	// Use the IDs below — replace with real IDs from your workspace
+	twitterAccountId := "acc_your_twitter_id"
+	linkedinAccountId := "acc_your_linkedin_id"
+
 	// Example 1: Create a simple draft post
-	fmt.Println("=== Creating draft post ===")
+	fmt.Println("\n=== Creating draft post ===")
 	draft, err := client.Posts.CreateDraft(ctx,
 		"Hello from the VoxBurst Go SDK! 🚀",
-		[]voxburst.Platform{voxburst.PlatformTwitter, voxburst.PlatformLinkedIn},
+		[]string{twitterAccountId, linkedinAccountId},
 	)
 	if err != nil {
 		log.Fatalf("Failed to create draft: %v", err)
@@ -39,7 +52,7 @@ func main() {
 	scheduledTime := time.Now().Add(24 * time.Hour)
 	scheduled, err := client.Posts.Schedule(ctx,
 		"Scheduled post from Go SDK!",
-		[]voxburst.Platform{voxburst.PlatformTwitter},
+		[]string{twitterAccountId},
 		scheduledTime,
 	)
 	if err != nil {
@@ -50,8 +63,8 @@ func main() {
 	// Example 3: Create post with platform-specific content
 	fmt.Println("\n=== Creating post with platform overrides ===")
 	post, err := client.Posts.Create(ctx, voxburst.CreatePostParams{
-		Content:   "Check out our new feature!",
-		Platforms: []voxburst.Platform{voxburst.PlatformTwitter, voxburst.PlatformLinkedIn},
+		Content:    "Check out our new feature!",
+		AccountIds: []string{twitterAccountId, linkedinAccountId},
 		PlatformOverrides: map[voxburst.Platform]any{
 			voxburst.PlatformTwitter: map[string]any{
 				"content": "🎉 New feature alert! Check it out! #launch",
@@ -87,10 +100,12 @@ func main() {
 			log.Fatalf("Failed to upload media: %v", err)
 		}
 
+		instagramAccountId := "acc_your_instagram_id"
 		postWithMedia, err := client.Posts.Create(ctx, voxburst.CreatePostParams{
-			Content:   "Check out this photo!",
-			Platforms: []voxburst.Platform{voxburst.PlatformTwitter, voxburst.PlatformInstagram},
-			Media:     []string{mediaID},
+			Content:     "Check out this photo!",
+			AccountIds:  []string{twitterAccountId, instagramAccountId},
+			ContentType: "IMAGE",
+			Media:       []string{mediaID},
 		})
 		if err != nil {
 			log.Fatalf("Failed to create post with media: %v", err)

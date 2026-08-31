@@ -29,6 +29,7 @@ type Client struct {
 	Analytics *AnalyticsService
 	Webhooks  *WebhooksService
 	Media     *MediaService
+	Batch     *BatchService
 }
 
 // NewClient creates a new VoxBurst API client.
@@ -58,6 +59,7 @@ func NewClient(apiKey string, opts ...Option) *Client {
 	c.Analytics = &AnalyticsService{client: c}
 	c.Webhooks = &WebhooksService{client: c}
 	c.Media = &MediaService{client: c}
+	c.Batch = &BatchService{client: c}
 
 	return c
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // WebhooksService handles webhook-related API calls.
@@ -79,6 +80,38 @@ func (s *WebhooksService) Enable(ctx context.Context, id string, opts ...Request
 func (s *WebhooksService) Disable(ctx context.Context, id string, opts ...RequestOption) (*Webhook, error) {
 	enabled := false
 	return s.Update(ctx, id, UpdateWebhookParams{Enabled: &enabled}, opts...)
+}
+
+// WebhookTestDelivery is the result of a single test delivery attempt sent by
+// WebhooksService.Test.
+type WebhookTestDelivery struct {
+	ID           string     `json:"id"`
+	WebhookID    string     `json:"webhookId"`
+	EventType    string     `json:"eventType"`
+	URL          string     `json:"url"`
+	StatusCode   *int       `json:"statusCode"`
+	LatencyMs    *int       `json:"latencyMs"`
+	ResponseBody *string    `json:"responseBody"`
+	RetryCount   int        `json:"retryCount"`
+	Success      bool       `json:"success"`
+	Error        *string    `json:"error"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	DeliveredAt  *time.Time `json:"deliveredAt"`
+}
+
+// Test sends a test payload to a registered, enabled webhook and returns the
+// delivery result. Unlike Test failures on other resources, a delivery that
+// the receiving endpoint rejects is still a successful API call — check
+// Success and StatusCode on the returned delivery, not just the error return.
+func (s *WebhooksService) Test(ctx context.Context, webhookID string, opts ...RequestOption) (*WebhookTestDelivery, error) {
+	var result struct {
+		Data WebhookTestDelivery `json:"data"`
+	}
+	body := map[string]string{"webhookId": webhookID}
+	if err := s.client.post(ctx, "/webhooks/test", body, &result, opts...); err != nil {
+		return nil, err
+	}
+	return &result.Data, nil
 }
 
 // VerifySignature verifies the webhook signature.

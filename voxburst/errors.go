@@ -16,6 +16,20 @@ const (
 	ErrCodeConflict     = "CONFLICT"
 	ErrCodeRateLimited  = "RATE_LIMITED"
 	ErrCodeInternal     = "INTERNAL_ERROR"
+
+	// Returned by AccountsService.SelectPage, all with HTTP 400.
+
+	// ErrCodePageSelectionNotSupported means the account was connected via
+	// Instagram Direct Login, which has no Facebook Pages to select. The
+	// account must be reconnected via Facebook Login for Business first.
+	ErrCodePageSelectionNotSupported = "PAGE_SELECTION_NOT_SUPPORTED"
+	// ErrCodeAccountPageMismatch means the given Page belongs to a different
+	// Instagram account. Each Instagram account is stored as its own connected
+	// account; select the Page from the matching account's own record.
+	ErrCodeAccountPageMismatch = "ACCOUNT_PAGE_MISMATCH"
+	// ErrCodeDestinationsNotLoaded means the account's destinations have not
+	// finished loading yet. Retry shortly.
+	ErrCodeDestinationsNotLoaded = "DESTINATIONS_NOT_LOADED"
 )
 
 // APIError represents an error returned by the API.

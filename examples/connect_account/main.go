@@ -7,7 +7,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/FortheanLabsProjects/voxburst-go/voxburst"
+	"github.com/fortheanprojects/voxburst-go/voxburst"
 )
 
 func main() {
@@ -24,7 +24,7 @@ func main() {
 
 	// Example 1: List all connected accounts
 	fmt.Println("=== Connected Accounts ===")
-	accounts, err := client.Accounts.List(ctx)
+	accounts, err := client.Accounts.List(ctx, nil)
 	if err != nil {
 		log.Fatalf("Failed to list accounts: %v", err)
 	}

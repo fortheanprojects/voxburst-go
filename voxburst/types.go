@@ -79,9 +79,20 @@ type Post struct {
 
 // PostPlatform represents a post's status on a specific platform.
 type PostPlatform struct {
-	Platform        Platform   `json:"platform"`
-	AccountID       string     `json:"accountId"`
-	AccountName     string     `json:"accountName"`
+	Platform    Platform `json:"platform"`
+	AccountID   string   `json:"accountId"`
+	AccountName string   `json:"accountName"`
+	// AccountAvatarURL is the profile picture of the connected social account.
+	// Empty when the account has no avatar.
+	AccountAvatarURL string `json:"accountAvatarUrl,omitempty"`
+	// AccountStatus is the connection state of the underlying social account,
+	// lowercased ("active", "expired", "disconnected", "suspended", "error").
+	//
+	// Accounts are soft-deleted on disconnect, so a published post keeps its
+	// platform row even after the account can no longer be authenticated as.
+	// Check this before an operation that calls the platform (unpublish,
+	// delete): anything other than "active" will not succeed.
+	AccountStatus   string     `json:"accountStatus,omitempty"`
 	Status          PostStatus `json:"status"`
 	PlatformPostID  string     `json:"platformPostId,omitempty"`
 	PlatformPostURL string     `json:"platformPostUrl,omitempty"`
@@ -106,7 +117,10 @@ type Media struct {
 	URL         string            `json:"url,omitempty"`
 	Variants    map[string]string `json:"variants,omitempty"`
 	Dimensions  *MediaDimensions  `json:"dimensions,omitempty"`
-	CreatedAt   time.Time         `json:"createdAt"`
+	// ThumbnailURL is the generated poster frame for video media. Empty for
+	// images and for videos uploaded before thumbnail generation shipped.
+	ThumbnailURL string    `json:"thumbnailUrl,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
 }
 
 // MediaDimensions represents the dimensions of media.
@@ -124,7 +138,44 @@ type Account struct {
 	AvatarURL   string        `json:"avatarUrl,omitempty"`
 	AccountType AccountType   `json:"accountType"`
 	Status      AccountStatus `json:"status"`
-	ConnectedAt time.Time     `json:"connectedAt"`
+	// ScopeHealth reports connect-time scope verification: what the platform
+	// actually granted versus what VoxBurst's features require.
+	//
+	// A nil ScopeHealth does NOT mean the account is healthy. The API omits the
+	// field entirely for accounts connected before scope verification shipped,
+	// so nil means "never verified", not "no gaps". Treat nil as unknown and
+	// re-verify by reconnecting; defaulting nil to OK defeats the check.
+	//
+	// This is distinct from Status: an account can be ACTIVE (its token still
+	// works) while ScopeHealth.Status is "DEGRADED" because a specific
+	// capability was never granted.
+	ScopeHealth *ScopeHealth `json:"scopeHealth,omitempty"`
+	ConnectedAt time.Time    `json:"connectedAt"`
+}
+
+// ScopeHealth describes whether a connected account was granted every
+// permission the features it is used for actually need.
+type ScopeHealth struct {
+	// Status is one of "OK", "DEGRADED", "UNKNOWN", "NOT_APPLICABLE".
+	Status string `json:"status"`
+	// DegradedCapabilities lists what cannot work, in user-facing terms.
+	// Never raw scope names.
+	DegradedCapabilities []DegradedCapability `json:"degradedCapabilities"`
+	// Message is one user-facing sentence, empty when the account is healthy.
+	Message string `json:"message,omitempty"`
+	// Reason explains why the granted set is unknown or not applicable.
+	Reason     string `json:"reason,omitempty"`
+	VerifiedAt string `json:"verifiedAt,omitempty"`
+}
+
+// DegradedCapability is a single capability that scope verification found
+// cannot work for an account.
+type DegradedCapability struct {
+	Capability string `json:"capability"`
+	Label      string `json:"label"`
+	// GrantedForOtherTargetsOnly means the permission exists for a different
+	// Page/account rather than being missing outright.
+	GrantedForOtherTargetsOnly bool `json:"grantedForOtherTargetsOnly,omitempty"`
 }
 
 // Webhook represents a webhook subscription.

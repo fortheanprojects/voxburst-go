@@ -1,4 +1,4 @@
-module github.com/FortheanLabsProjects/voxburst-go
+module github.com/fortheanprojects/voxburst-go
 
 go 1.21
 
