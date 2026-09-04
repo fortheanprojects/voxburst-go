@@ -1,16 +1,18 @@
 package voxburst
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
 const (
-	// DefaultBaseURL is the production API base URL.
-	DefaultBaseURL = "https://api.socialdispatch.io/v1"
+	// Version is the SDK version, reported in the default User-Agent header.
+	Version = "1.1.0"
 
-	// StagingBaseURL is the staging API base URL.
-	StagingBaseURL = "https://api-staging.socialdispatch.io/v1"
+	// DefaultBaseURL is the production API base URL.
+	DefaultBaseURL = "https://api.voxburst.io/v1"
 
 	// DefaultTimeout is the default HTTP client timeout.
 	DefaultTimeout = 30 * time.Second
@@ -48,22 +50,24 @@ func defaultConfig() *clientConfig {
 		maxRetries:   DefaultMaxRetries,
 		retryWaitMin: DefaultRetryWaitMin,
 		retryWaitMax: DefaultRetryWaitMax,
-		userAgent:    "voxburst-go/1.0.0",
+		userAgent:    "voxburst-go/" + Version,
 		debug:        false,
 	}
 }
 
 // WithBaseURL sets a custom base URL.
+//
+// The URL must use the https scheme: the client sends your API key as a
+// Bearer token on every request, and a plaintext transport would expose it.
+// Passing a non-https URL panics, consistent with the other options in this
+// package (which cannot return errors). Use an https test server (for example
+// httptest.NewTLSServer together with WithHTTPClient) when testing locally.
 func WithBaseURL(url string) Option {
+	if !strings.HasPrefix(url, "https://") {
+		panic(fmt.Sprintf("voxburst: WithBaseURL must use HTTPS to protect your API key, got %q", url))
+	}
 	return func(c *clientConfig) {
 		c.baseURL = url
-	}
-}
-
-// WithStaging configures the client to use the staging environment.
-func WithStaging() Option {
-	return func(c *clientConfig) {
-		c.baseURL = StagingBaseURL
 	}
 }
 

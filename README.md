@@ -64,10 +64,9 @@ func ptr[T any](v T) *T { return &v }
 
 ```go
 client := voxburst.NewClient(apiKey,
-    // Use staging environment
-    voxburst.WithStaging(),
-    
-    // Or set a custom base URL
+    // Override the API base URL (defaults to https://api.voxburst.io/v1).
+    // Must be https:// — the option panics otherwise, to keep your API key
+    // off plaintext transports.
     voxburst.WithBaseURL("https://custom.api.url/v1"),
     
     // Custom HTTP client
